@@ -2,15 +2,20 @@ from fastapi import FastAPI
 from queue import Queue
 from datetime import datetime, timedelta
 from pydantic import BaseModel
+import pytz
 
 app = FastAPI()
+
 # Number of machines
-num_machines = 3  # Change this to the desired number of machines
+num_machines = 10  # Change this to the desired number of machines
 # Queues to store users waiting for each machine
 user_queues = Queue()
 # Dictionary to store user assignments and their wash times for each machine
-user_assignments = {machine_id: {} for machine_id in range(num_machines)}
+user_assignments = {machine_id: {} for machine_id in range(1, num_machines + 1)}  # Start machine numbering from 1
 completed_users = []
+
+# Define the timezone you want to work with, in this case, Bangalore (IST)
+bangalore_tz = pytz.timezone("Asia/Kolkata")
 
 class UserRequest(BaseModel):
     user_name: str
@@ -20,14 +25,14 @@ class UserRequest(BaseModel):
 async def assign_machine(request: UserRequest):
     user_name = request.user_name
     wash_time = request.wash_time
-    current_time = datetime.now()
+    current_time = datetime.now(bangalore_tz)  # Get current time in Bangalore timezone
     new_user = {
         "user_name": user_name,
         "wash_time": wash_time,
         "arrived_at": current_time.strftime("%I:%M %p"),  # Convert to 12-hour format
     }
     # Assign the user to the first available machine
-    for machine_id in range(num_machines):
+    for machine_id in range(1, num_machines + 1):  # Start machine numbering from 1
         if not user_assignments[machine_id]:
             user_assignments[machine_id] = {**new_user, "assigned_at": current_time}
             return {
@@ -46,10 +51,10 @@ async def assign_machine(request: UserRequest):
 
 @app.get("/status")
 async def check_status():
-    current_time = datetime.now()
+    current_time = datetime.now(bangalore_tz)  # Get current time in Bangalore timezone
 
     # Update all statuses
-    for i, machine_user in enumerate(user_assignments.values()):
+    for i, machine_user in user_assignments.items():
         if machine_user:
             if machine_user["assigned_at"] + timedelta(minutes=machine_user["wash_time"]) < current_time:
                 completed_users.append(machine_user["user_name"])  # Add user to completed list
@@ -62,10 +67,7 @@ async def check_status():
                     user_assignments[i].pop("machine_available_at", None)
 
     # Calculate waiting time for the first user in the queue
-    waiting_times = []
-    for user in user_queues.queue:
-        wash_time = user["wash_time"]
-        waiting_times.append(wash_time)
+    waiting_times = [user["wash_time"] for user in user_assignments.values()]
     shortest_wash_time = min(waiting_times) if waiting_times else 0
 
     # Prepare response
@@ -87,10 +89,10 @@ async def check_status():
 
 @app.get("/user_status")
 async def check_user_status(user_name: str):
-    current_time = datetime.now()
+    current_time = datetime.now(bangalore_tz)  # Get current time in Bangalore timezone
 
     # Update all statuses
-    for i, machine_user in enumerate(user_assignments.values()):
+    for i, machine_user in user_assignments.items():
         if machine_user:
             if machine_user["assigned_at"] + timedelta(minutes=machine_user["wash_time"]) < current_time:
                 completed_users.append(machine_user["user_name"])  # Add user to completed list
@@ -111,7 +113,7 @@ async def check_user_status(user_name: str):
             return {
                 **user_status,
                 "user_name": user_name,
-                "status": f"You are assigned to machine machine: {machine_id}",
+                "status": f"You are assigned to machine {machine_id}",
                 "wash_time": machine_user.get("wash_time"),
                 "arrived_at": machine_user.get("arrived_at"),
                 "assigned_at": machine_user.get("assigned_at").strftime("%I:%M %p"),
